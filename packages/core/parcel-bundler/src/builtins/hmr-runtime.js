@@ -32,15 +32,16 @@ if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
     if (data.type === 'update') {
       console.clear();
 
-      data.assets.forEach(function (asset) {
+      Promise.all(data.assets.map(function (asset) {
         hmrApply(global.parcelRequire, asset);
-      });
+      }));
 
-      data.assets.forEach(function (asset) {
+      Promise.all(data.assets.map(function (asset) {
         if (!asset.isNew) {
-          hmrAccept(global.parcelRequire, asset.id,asset.prom);
+          return hmrAccept(global.parcelRequire, asset.id,asset.prom);
         }
-      });
+      }));
+      
     }
 
     if (data.type === 'reload') {
@@ -127,34 +128,25 @@ function hmrApply(bundle, asset, wasmModule) {
   if (!modules) {
     return;
   }
-console.log(bundle)
+  console.log(bundle)
   if (modules[asset.id] || !bundle.parent) {
     if ('wasm' in (asset.generated || {})) {
-      // console.log('exports', wasmModule.instance.exports);
-      console.log('asset', asset)
-      console.log('asset.id', asset.id);
-      console.log('modules[asset.id]', modules[asset.id]);
-
       const binary_string =  window.atob(asset.generated.wasm.blob);
       const len = binary_string.length;
       const bytes = new Uint8Array( len );
       for (var i = 0; i < len; i++)        {
           bytes[i] = binary_string.charCodeAt(i);
       }
-      let prom = WebAssembly.instantiate(bytes).then((wasmModule) => {
+
+      asset.isNew = !modules[asset.id];
+      WebAssembly.instantiate(bytes).then((wasmModule) => {
         console.log(bundle.modules);
         window.flump = wasmModule.instance.exports;
-
-        var fn = new Function('require', 'module', 'exports', 'exports = () => alert("hi")');
-        console.log('asset.deps_rust',asset.deps);
-
-        // modules[asset.id] = [fn, asset.deps];
       })
-      asset.prom = prom;
-      asset.isNew = !modules[asset.id];
-      // var fn = new Function('require', 'module', 'exports', 'exports = ');
-      // modules[asset.id] = [fn, asset.deps];
-      
+
+      var fn = new Function('require', 'module', 'exports', 'exports.factorial = (val) => window.flump.factorial(val)');
+
+        modules[asset.id] = [fn, asset.deps];
 
       // if (bundle.parent) {
       //   hmrApply(bundle.parent, asset);
@@ -172,45 +164,47 @@ console.log(bundle)
 }
 
 function hmrAccept(bundle, id, prom) {
-  var modules = bundle.modules;
-  if (!modules) {
-    return;
-  }
-
-  if (!modules[id] && bundle.parent) {
-    return hmrAccept(bundle.parent, id);
-  }
-
-  var cached = bundle.cache[id];
-  bundle.hotData = {};
-  if (cached) {
-    cached.hot.data = bundle.hotData;
-  }
-
-  if (cached && cached.hot && cached.hot._disposeCallbacks.length) {
-    cached.hot._disposeCallbacks.forEach(function (cb) {
-      cb(bundle.hotData);
-    });
-  }
-
-  delete bundle.cache[id];
-  if(prom) {
-    prom.then(()=>{
-      console.log("REO")
-      parcelRequire(id);
-    })
-  } else {
-  bundle(id);
-  }
-  cached = bundle.cache[id];
-  if (cached && cached.hot && cached.hot._acceptCallbacks.length) {
-    cached.hot._acceptCallbacks.forEach(function (cb) {
-      cb();
-    });
-    return true;
-  }
-
-  return getParents(global.parcelRequire, id).some(function (id) {
-    return hmrAccept(global.parcelRequire, id)
-  });
+  return new Promise((resolve) => {
+    var modules = bundle.modules;
+    if (!modules) {
+      return;
+    }
+  
+    if (!modules[id] && bundle.parent) {
+      return hmrAccept(bundle.parent, id);
+    }
+  
+    var cached = bundle.cache[id];
+    bundle.hotData = {};
+    if (cached) {
+      cached.hot.data = bundle.hotData;
+    }
+  
+    if (cached && cached.hot && cached.hot._disposeCallbacks.length) {
+      cached.hot._disposeCallbacks.forEach(function (cb) {
+        cb(bundle.hotData);
+      });
+    }
+  
+    delete bundle.cache[id];
+    if(prom) {
+      prom.then(()=>{
+        console.log("REO")
+        bundle(id);
+      })
+    } else {
+      bundle(id);
+    }
+    cached = bundle.cache[id];
+    if (cached && cached.hot && cached.hot._acceptCallbacks.length) {
+      cached.hot._acceptCallbacks.forEach(function (cb) {
+        cb();
+      });
+      return true;
+    }
+  
+    resolve(getParents(global.parcelRequire, id).some(function (id) {
+      return hmrAccept(global.parcelRequire, id)
+    }));
+  })
 }
