@@ -1,3 +1,5 @@
+var b = require('./bundle-loader')
+b.register("wasm",require("./loaders/browser/wasm-loader.js"));
 var OVERLAY_ID = '__parcel__error__overlay__';
 
 var OldModule = module.bundle.Module;

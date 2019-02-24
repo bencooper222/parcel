@@ -5,6 +5,7 @@ const {promisify} = require('@parcel/utils');
 const exec = promisify(childProcess.execFile);
 const toml = require('@iarna/toml');
 const fs = require('@parcel/fs');
+const urlJoin = require('../utils/urlJoin');
 const Asset = require('../Asset');
 const config = require('../utils/config');
 const pipeSpawn = require('../utils/pipeSpawn');
