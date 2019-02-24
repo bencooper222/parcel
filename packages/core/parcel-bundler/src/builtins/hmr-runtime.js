@@ -38,7 +38,7 @@ if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
 
       data.assets.forEach(function (asset) {
         if (!asset.isNew) {
-          hmrAccept(global.parcelRequire, asset.id);
+          hmrAccept(global.parcelRequire, asset.id,asset.prom);
         }
       });
     }
@@ -122,22 +122,56 @@ function getParents(bundle, id) {
   return parents;
 }
 
-function hmrApply(bundle, asset) {
+function hmrApply(bundle, asset, wasmModule) {
   var modules = bundle.modules;
   if (!modules) {
     return;
   }
-
+console.log(bundle)
   if (modules[asset.id] || !bundle.parent) {
-    var fn = new Function('require', 'module', 'exports', asset.generated.js);
-    asset.isNew = !modules[asset.id];
-    modules[asset.id] = [fn, asset.deps];
+    if ('wasm' in (asset.generated || {})) {
+      // console.log('exports', wasmModule.instance.exports);
+      console.log('asset', asset)
+      console.log('asset.id', asset.id);
+      console.log('modules[asset.id]', modules[asset.id]);
+
+      const binary_string =  window.atob(asset.generated.wasm.blob);
+      const len = binary_string.length;
+      const bytes = new Uint8Array( len );
+      for (var i = 0; i < len; i++)        {
+          bytes[i] = binary_string.charCodeAt(i);
+      }
+      let prom = WebAssembly.instantiate(bytes).then((wasmModule) => {
+        console.log(bundle.modules);
+        window.flump = wasmModule.instance.exports;
+
+        var fn = new Function('require', 'module', 'exports', 'exports = () => alert("hi")');
+        console.log('asset.deps_rust',asset.deps);
+
+        // modules[asset.id] = [fn, asset.deps];
+      })
+      asset.prom = prom;
+      asset.isNew = !modules[asset.id];
+      // var fn = new Function('require', 'module', 'exports', 'exports = ');
+      // modules[asset.id] = [fn, asset.deps];
+      
+
+      // if (bundle.parent) {
+      //   hmrApply(bundle.parent, asset);
+      // }
+    } else {
+      var fn = new Function('require', 'module', 'exports', 'console.trace(); '+asset.generated.js);
+      console.log('asset.generated.js', asset.generated.js);
+      asset.isNew = !modules[asset.id];
+      console.log('asset.deps',asset.deps);
+      modules[asset.id] = [fn, asset.deps];
+    }
   } else if (bundle.parent) {
     hmrApply(bundle.parent, asset);
   }
 }
 
-function hmrAccept(bundle, id) {
+function hmrAccept(bundle, id, prom) {
   var modules = bundle.modules;
   if (!modules) {
     return;
@@ -160,8 +194,14 @@ function hmrAccept(bundle, id) {
   }
 
   delete bundle.cache[id];
+  if(prom) {
+    prom.then(()=>{
+      console.log("REO")
+      parcelRequire(id);
+    })
+  } else {
   bundle(id);
-
+  }
   cached = bundle.cache[id];
   if (cached && cached.hot && cached.hot._acceptCallbacks.length) {
     cached.hot._acceptCallbacks.forEach(function (cb) {
