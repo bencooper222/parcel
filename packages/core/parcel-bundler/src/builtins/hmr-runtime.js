@@ -30,18 +30,34 @@ if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
     var data = JSON.parse(event.data);
 
     if (data.type === 'update') {
-      console.clear();
-
-      Promise.all(data.assets.map(function (asset) {
-        hmrApply(global.parcelRequire, asset);
-      }));
-
-      Promise.all(data.assets.map(function (asset) {
-        if (!asset.isNew) {
-          return hmrAccept(global.parcelRequire, asset.id,asset.prom);
+      if (data.assets.some((asset) => ('wasm' in (asset.generated || {})))) {
+        const binary_string =  window.atob(data.assets[0].generated.wasm.blob);
+        const len = binary_string.length;
+        const bytes = new Uint8Array( len );
+        for (var i = 0; i < len; i++)        {
+            bytes[i] = binary_string.charCodeAt(i);
         }
-      }));
-      
+        WebAssembly.instantiate(bytes).then((wasmModule) => {
+          data.assets.forEach(function (asset) {
+            hmrApply(global.parcelRequire, asset, wasmModule);
+          });
+          data.assets.forEach(function (asset) {
+            if (!asset.isNew) {
+              hmrAccept(global.parcelRequire, asset.id,asset.prom);
+            }
+          })
+        });
+      } else {
+        data.assets.forEach(function (asset) {
+          hmrApply(global.parcelRequire, asset, wasmModule);
+        });
+
+        data.assets.forEach(function (asset) {
+          if (!asset.isNew) {
+            hmrAccept(global.parcelRequire, asset.id,asset.prom);
+          }
+        });
+      }      
     }
 
     if (data.type === 'reload') {
@@ -131,31 +147,14 @@ function hmrApply(bundle, asset, wasmModule) {
   console.log(bundle)
   if (modules[asset.id] || !bundle.parent) {
     if ('wasm' in (asset.generated || {})) {
-      const binary_string =  window.atob(asset.generated.wasm.blob);
-      const len = binary_string.length;
-      const bytes = new Uint8Array( len );
-      for (var i = 0; i < len; i++)        {
-          bytes[i] = binary_string.charCodeAt(i);
-      }
-
+      function fn(require, module, exports) {
+        exports.factorial = val => wasmModule.instance.exports.factorial(val);
+      } 
       asset.isNew = !modules[asset.id];
-      WebAssembly.instantiate(bytes).then((wasmModule) => {
-        console.log(bundle.modules);
-        window.flump = wasmModule.instance.exports;
-      })
-
-      var fn = new Function('require', 'module', 'exports', 'exports.factorial = (val) => window.flump.factorial(val)');
-
-        modules[asset.id] = [fn, asset.deps];
-
-      // if (bundle.parent) {
-      //   hmrApply(bundle.parent, asset);
-      // }
+      modules[asset.id] = [fn, asset.deps];
     } else {
-      var fn = new Function('require', 'module', 'exports', 'console.trace(); '+asset.generated.js);
-      console.log('asset.generated.js', asset.generated.js);
+      var fn = new Function('require', 'module', 'exports', asset.generated.js);
       asset.isNew = !modules[asset.id];
-      console.log('asset.deps',asset.deps);
       modules[asset.id] = [fn, asset.deps];
     }
   } else if (bundle.parent) {
@@ -164,47 +163,38 @@ function hmrApply(bundle, asset, wasmModule) {
 }
 
 function hmrAccept(bundle, id, prom) {
-  return new Promise((resolve) => {
-    var modules = bundle.modules;
-    if (!modules) {
-      return;
-    }
-  
-    if (!modules[id] && bundle.parent) {
-      return hmrAccept(bundle.parent, id);
-    }
-  
-    var cached = bundle.cache[id];
-    bundle.hotData = {};
-    if (cached) {
-      cached.hot.data = bundle.hotData;
-    }
-  
-    if (cached && cached.hot && cached.hot._disposeCallbacks.length) {
-      cached.hot._disposeCallbacks.forEach(function (cb) {
-        cb(bundle.hotData);
-      });
-    }
-  
-    delete bundle.cache[id];
-    if(prom) {
-      prom.then(()=>{
-        console.log("REO")
-        bundle(id);
-      })
-    } else {
-      bundle(id);
-    }
-    cached = bundle.cache[id];
-    if (cached && cached.hot && cached.hot._acceptCallbacks.length) {
-      cached.hot._acceptCallbacks.forEach(function (cb) {
-        cb();
-      });
-      return true;
-    }
-  
-    resolve(getParents(global.parcelRequire, id).some(function (id) {
-      return hmrAccept(global.parcelRequire, id)
-    }));
-  })
+  var modules = bundle.modules;
+  if (!modules) {
+    return;
+  }
+
+  if (!modules[id] && bundle.parent) {
+    hmrAccept(bundle.parent, id);
+  }
+
+  var cached = bundle.cache[id];
+  bundle.hotData = {};
+  if (cached) {
+    cached.hot.data = bundle.hotData;
+  }
+
+  if (cached && cached.hot && cached.hot._disposeCallbacks.length) {
+    cached.hot._disposeCallbacks.forEach(function (cb) {
+      cb(bundle.hotData);
+    });
+  }
+
+  delete bundle.cache[id];
+  bundle(id);
+  cached = bundle.cache[id];
+  if (cached && cached.hot && cached.hot._acceptCallbacks.length) {
+    cached.hot._acceptCallbacks.forEach(function (cb) {
+      cb();
+    });
+    return true;
+  }
+
+  getParents(global.parcelRequire, id).some(function (id) {
+    hmrAccept(global.parcelRequire, id)
+  });
 }
