@@ -122,52 +122,43 @@ function getParents(bundle, id) {
   return parents;
 }
 
-function hmrApply(bundle, asset, wasmModule) {
+async function hmrApply(bundle, asset) {
   var modules = bundle.modules;
+
   if (!modules) {
     return;
   }
-console.log(bundle)
+
   if (modules[asset.id] || !bundle.parent) {
     if ('wasm' in (asset.generated || {})) {
-      // console.log('exports', wasmModule.instance.exports);
-      console.log('asset', asset)
-      console.log('asset.id', asset.id);
-      console.log('modules[asset.id]', modules[asset.id]);
 
+      // Convert base64 to ArrayBuffer for use by wasm
       const binary_string =  window.atob(asset.generated.wasm.blob);
       const len = binary_string.length;
       const bytes = new Uint8Array( len );
       for (var i = 0; i < len; i++)        {
           bytes[i] = binary_string.charCodeAt(i);
       }
-      let prom = WebAssembly.instantiate(bytes).then((wasmModule) => {
-        console.log(bundle.modules);
-        window.flump = wasmModule.instance.exports;
+      const wasmModule = await WebAssembly.instantiate(bytes)
 
-        var fn = new Function('require', 'module', 'exports', 'exports = () => alert("hi")');
-        console.log('asset.deps_rust',asset.deps);
+      function fn(require, module, exports) {
+        return exports = wasmModule.instance.exports;
+      }
 
-        // modules[asset.id] = [fn, asset.deps];
-      })
-      asset.prom = prom;
-      asset.isNew = !modules[asset.id];
-      // var fn = new Function('require', 'module', 'exports', 'exports = ');
-      // modules[asset.id] = [fn, asset.deps];
-      
-
-      // if (bundle.parent) {
-      //   hmrApply(bundle.parent, asset);
-      // }
-    } else {
-      var fn = new Function('require', 'module', 'exports', 'console.trace(); '+asset.generated.js);
-      console.log('asset.generated.js', asset.generated.js);
-      asset.isNew = !modules[asset.id];
-      console.log('asset.deps',asset.deps);
       modules[asset.id] = [fn, asset.deps];
+      asset.isNew = !modules[asset.id];
+
+    } else {
+      return new Promise((resolve, reject) {
+        var fn = new Function('require', 'module', 'exports', 'console.trace(); '+asset.generated.js);
+        console.log('asset.generated.js', asset.generated.js);
+        
+        asset.isNew = !modules[asset.id];
+        resolve(modules[asset.id] = [fn, asset.deps]);
+      })
     }
   } else if (bundle.parent) {
-    hmrApply(bundle.parent, asset);
+    return await hmrApply(bundle.parent, asset);
   }
 }
 
