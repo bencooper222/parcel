@@ -150,7 +150,9 @@ function hmrApply(bundle, asset, wasmModule) {
   if (modules[asset.id] || !bundle.parent) {
     if ('wasm' in (asset.generated || {})) {
       function fn(require, module, exports) {
-        exports.factorial = val => wasmModule.instance.exports.factorial(val);
+        for (field in wasmModule.instance.exports) {
+          exports[field] = wasmModule.instance.exports[field];
+        }
       } 
       asset.isNew = !modules[asset.id];
       modules[asset.id] = [fn, asset.deps];
