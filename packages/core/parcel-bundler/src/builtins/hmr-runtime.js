@@ -33,7 +33,7 @@ if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
 
     if (data.type === 'update') {
       if (data.assets.some((asset) => ('wasm' in (asset.generated || {})))) {
-        const binary_string =  window.atob(data.assets[0].generated.wasm.blob);
+        const binary_string =  window.atob(data.assets[0].generated.wasm.blob); //TODO: Generalize this
         const len = binary_string.length;
         const bytes = new Uint8Array( len );
         for (var i = 0; i < len; i++)        {
@@ -51,7 +51,7 @@ if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
         });
       } else {
         data.assets.forEach(function (asset) {
-          hmrApply(global.parcelRequire, asset, wasmModule);
+          hmrApply(global.parcelRequire, asset);
         });
 
         data.assets.forEach(function (asset) {
@@ -146,21 +146,18 @@ function hmrApply(bundle, asset, wasmModule) {
   if (!modules) {
     return;
   }
-  console.log(bundle)
+
   if (modules[asset.id] || !bundle.parent) {
-    if ('wasm' in (asset.generated || {})) {
-      function fn(require, module, exports) {
+    var fn = ('wasm' in (asset.generated || {})) ?
+      function(require, module, exports) {
         for (field in wasmModule.instance.exports) {
           exports[field] = wasmModule.instance.exports[field];
         }
-      } 
-      asset.isNew = !modules[asset.id];
-      modules[asset.id] = [fn, asset.deps];
-    } else {
-      var fn = new Function('require', 'module', 'exports', asset.generated.js);
-      asset.isNew = !modules[asset.id];
-      modules[asset.id] = [fn, asset.deps];
-    }
+      }
+      : new Function('require', 'module', 'exports', asset.generated.js);
+
+    asset.isNew = !modules[asset.id];
+    modules[asset.id] = [fn, asset.deps];
   } else if (bundle.parent) {
     hmrApply(bundle.parent, asset);
   }
